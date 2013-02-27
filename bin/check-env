@@ -1,0 +1,85 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Check current environment and gives status if something is missing.
+ * Usage:
+ * Check active environment.
+ * $ ./bin/check-env
+ *
+ */
+
+$basePath = rtrim(realpath(dirname(__FILE__) . '/..'), '/');
+$CLI = require($basePath . '/bin/cli_libs/cli_bootstrap.php');
+
+// Used to collect messages and errors temporarily. See chmod() as an example.
+global $_messages, $_errors;
+
+/**
+ * Shortcut for success message.
+ */
+function ok() {
+    global $CLI;
+
+    $CLI->out("<success>OK</success>");
+}
+
+/**
+ * Check file permissions
+ */
+$CLI->out("Checking dir and file permissions... ", 0);
+$app_tmp = ROOT . DS . APP_DIR . DS . 'tmp';
+if (!is_writeable($app_tmp)) {
+    $CLI->error("{$app_tmp} is not writeable!");
+} else {
+    ok();
+}
+$CLI->out("<warning>Your webserver may not able to write into {$app_tmp}.</warning>");
+$in = $CLI->in("Do you want to chmod 777 {$app_tmp}?", array('y', 'n'), 'y');
+if ($in === 'y') {
+    $CLI->out("Chmod 777 {$app_tmp}... ");
+    if (!cli_chmod($app_tmp, 0777)) {
+        $CLI->out();
+        $CLI->error('Unable to chmod. Maybe try with `sudo`.', $_errors);
+    } else {
+        $CLI->out($_messages);
+    }
+    ok();
+}
+// Emptying tmp messages so it can be used again.
+$_messages = array();
+
+
+/**
+ * Check active-environment configuration.
+ */
+$CLI->out("Checking environment configuration... ", 0);
+try {
+    global $Env_Config;
+
+    $Env_Config = Gedex_Env_Config::getInstance();
+} catch (Exception $e) {
+    $CLI->out();
+    $CLI->error($e->getMessage());
+}
+ok();
+
+
+/**
+ * Check active-environment database's connection.
+ */
+$db_conf = $Env_Config->active_config['database'];
+$CLI->out("Checking database configuration... ", 0);
+$conn = @mysql_connect(
+    $db_conf['host'], $db_conf['login'], $db_conf['password']
+);
+if (!$conn) {
+    $CLI->out();
+    $CLI->error("Could not connect to `{$db_conf['host']}`. ", mysql_error());
+} else {
+    $_select_db = mysql_select_db($db_conf['database']);
+    if (!$_select_db) {
+        $CLI->out();
+        $CLI->error("Can't use database `{$db_conf['database']}`. ", mysql_error());
+    }
+}
+ok();

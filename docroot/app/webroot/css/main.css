@@ -1,0 +1,208 @@
+body, html, div, p, span, a, h1, h2, h3, h4, h5{
+	margin: 0;
+	padding: 0;
+}
+
+body, html{
+	width: 100%;
+}
+
+body{
+	background: url('../img/bkgd.png') repeat top left;
+	color: white;
+	font-family: tahoma;
+	font-weight: lighter;
+	padding-top: 40px;
+}
+
+body p {
+	font-size: 14px;
+}
+
+body p a {
+	font-size: 16px;
+}
+
+h1 {
+	color: #E05E00;
+	font-style: italic;
+}
+
+a {
+	color: #E05E00;
+	text-decoration: none;
+}
+
+a:hover {
+	color: #E05E00;
+	text-decoration: underline;
+}
+
+/* general */
+.clear {
+	clear: both;
+}
+
+/* Header */
+.brand{
+	color: #E05E00 !important;
+	font-family: georgia;
+	font-style: italic;
+}
+
+/* list stuff */
+#family-tree-list {
+	display: none;
+	/*background-color: white;
+	margin: 10px;
+	padding: 10px;*/
+}
+
+/* bootstrap overrides */
+.alert-message {
+	margin: 2px 0;
+}
+
+.topbar {
+	position: absolute;
+}
+
+/* Custom chart styling */
+.jOrgChart {
+  margin: 10px;
+  padding: 20px;
+}
+
+.jOrgChart td {
+	padding: 0 1.5em;
+}
+
+.jOrgChart .line,
+.jOrgChart .top {
+	width: 2px;
+	border-color: #456982;
+}
+
+.jOrgChart .down {
+	background-color: #456982;
+}
+
+.jOrgChart .left,
+.jOrgChart .right {
+	border-width: 2px;
+	border-color: #456982;
+}
+
+/* Custom node styling */
+.jOrgChart .node {
+	width: 160px;
+	height: 34px;
+	background-color: #6fc6ff;
+	background-image: -webkit-linear-gradient(hsla(0,0%,100%,.05), hsla(0,0%,0%,.1));
+	background-image:    -moz-linear-gradient(hsla(0,0%,100%,.05), hsla(0,0%,0%,.1));
+	background-image:     -ms-linear-gradient(hsla(0,0%,100%,.05), hsla(0,0%,0%,.1));
+	background-image:      -o-linear-gradient(hsla(0,0%,100%,.05), hsla(0,0%,0%,.1));
+	background-image:         linear-gradient(hsla(0,0%,100%,.05), hsla(0,0%,0%,.1));
+	border: none;
+	border-radius: .5em;
+	box-shadow: inset 0 0 0 1px hsla(0,0%,0%,.25),
+	            inset 0 2px 0 hsla(0,0%,100%,.1),
+	            inset 0 1.2em 0 hsla(0,0%,100%,.1),
+	            inset 0 -.2em 0 hsla(0,0%,100%,.1),
+	            inset 0 -.25em 0 hsla(0,0%,0%,.5),
+	            0 .25em .25em hsla(0,0%,0%,.1);
+	color: #444;
+	cursor: pointer;
+	display: inline-block;
+	font-family: sans-serif;
+	font-size: 1em;
+	font-weight: bold;
+	line-height: 1.5;
+	margin: 0;
+	padding: .5em;
+	position: relative;
+	text-decoration: none;
+	text-shadow: 0 1px 1px hsla(0,0%,100%,.25);
+	vertical-align: middle;
+}
+
+.jOrgChart .node.female {
+	background-color: #ff9999;
+}
+
+.node .photo {
+	margin-right: 10px;
+}
+
+.node .profile {
+	overflow: hidden;
+	text-align: left;
+}
+
+.node .name {
+	font-size: 14px;
+	line-height: 16px;
+	white-space: nowrap;
+}
+
+.node .birth-date {
+	font-size: 11px;
+}
+
+.node .arrow {
+	display: block;
+	position: absolute;
+	background-image: none;
+	background-repeat: no-repeat;
+}
+
+.node .arrow:hover,
+.node .arrow.active {
+	background-image: url(../img/arrows_sprite.png);
+}
+
+.node .arrow-right {
+	width: 11px;
+	height: 42px;
+	background-position: -9px 0;
+	top: 2px;
+	right: -13px;
+}
+
+.node .arrow-left {
+	width: 11px;
+	height: 42px;
+	background-position: -21px 0;
+	top: 2px;
+	left: -13px;
+}
+
+.node .arrow-up {
+	width: 42px;
+	height: 11px;
+	background-position: 0 -46px;
+	top: -13px;
+	left: 65px;
+}
+
+.node .arrow-down {
+	width: 42px;
+	height: 11px;
+	background-position: 0 -63px;
+	bottom: -13px;
+	left: 65px;
+}
+
+.node p{
+	font-size: 11px;
+	line-height: 11px;
+	padding: 2px;
+}
+
+/* bootstrap popover */
+.jOrgChart .node .popover {
+	width:256px;
+	text-align: left;
+	z-index: 99;
+	border-width: 1px;
+}

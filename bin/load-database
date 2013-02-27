@@ -1,0 +1,233 @@
+#!/usr/bin/env php
+<?php
+/**
+ * load-database
+ * Populate an environment with a particular database dump from the database/
+ * directory. Optional --stdout argument allows you to output all of the SQL to
+ * standard output without connecting to a MySQL server (for example, so you
+ * can run the script via phpMyAdmin).
+ *
+ * @version 0.6.3
+ *
+ * =CHANGELOG=
+ * 0.2: Refactoring the way domain translation is done to avoid having to do var_export
+ * 0.2.1: Fixing row counting
+ * 0.3: Now relying on sql-translate-hosts.php helper command.
+ * 0.4: Adding timer; exec instead of system and redirecting stderr; checking to see if config values have been supplied
+ * 0.4.1: Allowing empty passwords (e.g. for development)
+ * 0.5: Adding --blog_id=X option to load in a subset of dumped tables
+ * 0.6: Adding the ability to mark certain environments of requiring --force
+ * 0.6.1: Fixing behavior of --stdout by not echoing out progress
+ * 0.6.2: Using tempnam() for temp names so that we know they are writable (2011-12-09)
+ * 0.6.3: Ensuring that temp files always get deleted
+ *
+ * =USAGE=
+ * Reload the active environment's database
+ * $ ./load-database
+ *
+ * Load the src env's database into the active environment's database
+ * $ ./load-database src
+ *
+ * Load the src env's database into the dest environment database
+ * $ ./load-database src dest
+ *
+ * Output the SQL for loading the src env's database into the dest environment database
+ * $ ./load-database src dest --stdout
+ *
+ * Use the --blog_id=X option to restrict the loading to just the tables for a
+ * particular blog in a multisite instance.
+ * $ ./dump-database --blog_id=3
+ *
+ * @author Weston Ruter <weston@x-team.com>
+ * Copyright (C) 2011, X-Team <http://x-team.com/>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+$start_time = microtime(true);
+
+$basePath = rtrim(realpath(dirname(__FILE__) . '/..'), '/');
+$CLI = require($basePath . '/bin/cli_libs/cli_bootstrap.php');
+
+try {
+    global $Env_Config;
+
+    $Env_Config = Gedex_Env_Config::getInstance("$basePath/config/");
+}
+catch(Exception $e){
+    $CLI->error($e->getMessage());
+}
+
+// Figure out the environment we want to load
+$src_env = $dest_env = $Env_Config->active_env;
+$env_args_supplied = 0;
+foreach(array_slice($argv, 1) as $arg){
+    if(in_array($arg, array_keys($Env_Config->configs))){
+        $env_args_supplied++;
+        if($env_args_supplied == 1){
+            $src_env = $arg;
+        }
+        else if($env_args_supplied == 2){
+            $dest_env = $arg;
+        }
+        else if($env_args_supplied > 2){
+            $CLI->error("Too many environments supplied", 1);
+        }
+    }
+    else if(preg_match('/^--blog_?id=(\d+)/i', $arg, $matches)){
+        define('DATABASE_TABLE_SUBSET_WP_BLOG_ID', intval($matches[1]));
+    }
+    else if(substr($arg, 0, 1) != '-') {
+        $CLI->error("Unrecognized environment '$arg'", 2);
+    }
+}
+$src_env_config  = &$Env_Config->configs[$src_env];
+$dest_env_config = &$Env_Config->configs[$dest_env];
+
+/**
+ * Load the DB
+ */
+define('IS_OUTPUT_SQL', in_array('--stdout', $argv) || in_array('--sql', $argv));
+define('IS_FORCE_LOAD', in_array('--force', $argv));
+define('MUST_TRANSLATE_HOSTS', $src_env != $dest_env);
+define('IS_TEMP_DEST_DUMP', MUST_TRANSLATE_HOSTS);
+
+if(!empty($dest_env_config['database']['protected']) && !IS_FORCE_LOAD){
+    $CLI->error("The destination environment's database is marked as protected (WPIZED_DATABASE_PROTECTED=true). To load onto this database, you must supply the --force option.");
+}
+if($dest_env == 'production' && !IS_FORCE_LOAD && !IS_OUTPUT_SQL){
+    $CLI->error('As a precaution, you must invoke the loading the DB onto production via the --force option.');
+}
+
+$dest_dump_file = $src_dump_file = "$basePath/database/$src_env.sql";
+
+if(defined('DATABASE_TABLE_SUBSET_WP_BLOG_ID')){
+    $src_dump_file  = str_replace('.sql', sprintf('.%d.sql', DATABASE_TABLE_SUBSET_WP_BLOG_ID), $src_dump_file);
+    $dest_dump_file = str_replace('.sql', sprintf('.%d.sql', DATABASE_TABLE_SUBSET_WP_BLOG_ID), $dest_dump_file);
+}
+
+// Make sure we have dumps available
+if(!file_exists($src_dump_file)){
+    $CLI->error( sprintf("Missing database dump for '$src_env' (database/%s); please first run ./dump-database $src_env or obtain that SQL dump by another means (e.g. via phpMyAdmin)\n", basename($src_dump_file)) );
+}
+
+if(IS_TEMP_DEST_DUMP){
+    $dest_dump_file = tempnam( dirname($dest_dump_file), basename($dest_dump_file) );
+}
+
+/**
+ * Ensure that the temp files get deleted
+ */
+function cleanup_temp_files(){
+    global $dest_dump_file;
+    if(IS_TEMP_DEST_DUMP){
+        @unlink($dest_dump_file);
+    }
+}
+register_shutdown_function('cleanup_temp_files');
+
+
+if(MUST_TRANSLATE_HOSTS){
+    if(!IS_OUTPUT_SQL){
+        print "Translating hosts from $src_env to $dest_env...";
+    }
+    // Generate the mappings
+    $host_map = array();
+
+    // Use the DOMAIN_CURRENT_SITE constant to translate the domains
+    if(isset($src_env_config['app']['DOMAIN_CURRENT_SITE'])){
+        $host_map[sprintf('/([a-zA-Z0-9\-]+\.)?%s/', preg_quote($src_env_config['app']['DOMAIN_CURRENT_SITE']))] = '$1'.$dest_env_config['app']['DOMAIN_CURRENT_SITE'];
+    }
+
+    if(empty($host_map)){
+        $CLI->error("Your config must specify either a DOMAIN_CURRENT_SITE or a domain_registry array; otherwise, host name translations cannot be done between environments.");
+    }
+
+    // Perform host name translations from src to dest environment
+    if($src_dump_file == $dest_dump_file){
+        $CLI->error("Assertion failed that src_dump file is not the same as dest.");
+    }
+    $cmd = "php " . build_cmd_args(
+        realpath(dirname(__FILE__) . '/sql-translate-hosts.php'),
+        json_encode($host_map),
+        array('< %s', $src_dump_file),
+        array('> %s', $dest_dump_file)
+    );
+    @exec($cmd . ' 2>&1', $output, $exit_code); # also redirects stderr to stdout so we can get the output
+    if($exit_code){
+        $CLI->error("sql-translate-hosts.php command failed (exit code $exit_code): " . join("\n", $output), 4);
+    }
+    if(!IS_OUTPUT_SQL){
+        $CLI->out("<success>Done</success>");
+    }
+}
+
+if(IS_OUTPUT_SQL){
+    print file_get_contents($dest_dump_file);
+}
+else {
+    $CLI->out("<info>Loading `{$dest_env_config['database']['database']}` database onto `{$dest_env_config['database']['host']}`...</info>");
+    foreach(array('host', 'login', 'database') as $_field){
+        if(empty($dest_env_config['database'][$_field])){
+            $CLI->error("Error: env '$dest_env' missing $_field config");
+        }
+    }
+    if(!isset($dest_env_config['database']['password'])){
+        $dest_env_config['database']['password'] = '';
+    }
+    $cmd = 'mysql ' . build_cmd_args(
+        array("--host %s", $dest_env_config['database']['host']),
+        array("--user %s", $dest_env_config['database']['login']),
+        array("--password=%s", $dest_env_config['database']['password']),
+              "--default-character-set=utf8",
+              $dest_env_config['database']['database'],
+        array('< %s', $dest_dump_file)
+    );
+    @exec($cmd . ' 2>&1', $output, $exit_code);
+    if($exit_code){
+        $CLI->error("Unable to load data for env '$src_env'. mysql failed (exit code $exit_code): " . join("\n", $output), 3);
+    }
+    $CLI->out("<success>Done</success>");
+    $CLI->out(sprintf("<info>Load complete (took %.02f seconds)</info>", round(microtime(true)-$start_time, 2)));
+}
+exit(0);
+
+/**
+ * Given an array of arguments: strings pass through to output and arrays get
+ * applied to sprintf, with subarray items passed as sprintf arguments.
+ * @param {array} $arg_list
+ * @return {array}
+ */
+function build_cmd_args(/*...*/){
+    $arg_list = func_get_args();
+    $args = array();
+    foreach($arg_list as $arg_item){
+        if(is_string($arg_item)){
+            if(substr($arg_item, 0, 1) != '-'){
+                $arg_item = escapeshellarg($arg_item);
+            }
+            $args[] = $arg_item;
+        }
+        else {
+            array_splice(
+                $arg_item,
+                1,
+                count($arg_item),
+                array_map('escapeshellarg', array_slice($arg_item, 1))
+            );
+            $args[] = call_user_func_array('sprintf', $arg_item);
+        }
+    }
+    return join(' ', $args);
+}

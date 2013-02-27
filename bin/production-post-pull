@@ -1,0 +1,46 @@
+#!/bin/bash
+# Used to deploy to production
+
+CLONED_DIR='/home/utschool/www/registration.utschool.sch.id'
+DOCROOT="$CLONED_DIR/docroot"
+DB_NAME="utwp_production"
+DB_USER="utwp_production"
+DB_PASS="NUaANOzl9yVHWrOt3zYaPlpBEUCsdzj6lFL08PfPGwaDRYlY7acoszIIHXBpitM"
+# TODO: Add `ENV_NAME` variable.
+
+
+# Checkout to production branch.
+cd $CLONED_DIR
+git checkout production
+git pull
+
+
+# Activate production config.
+echo "Activating production env."
+echo 'production' > $CLONED_DIR/config/active-env
+
+
+# There's no need to call bin/load-database in production,
+# but still need to override production-mine.env.php
+if [ -e "$DOCROOT/config/production-mine.env.php" ]
+then
+    echo "Deleteing old productino-overrides.env.php"
+    rm -f $DOCROOT/config/production-mine.env.php
+fi
+touch $DOCROOT/config/staging-overrides.env.php
+echo -e '<?php\n\n' > $DOCROOT/config/production-mine.env.php
+echo -e 'return array(' >> $DOCROOT/config/production-mine.env.php
+echo -e "\t'DB_USER' => '$DB_USER'," >> $DOCROOT/config/production-mine.env.php
+echo -e "\t'DB_PASSWORD' => '$DB_PASS'," >> $DOCROOT/config/production-mine.env.php
+echo -e "\t'DB_NAME' => '$DB_NAME'," >> $DOCROOT/config/production-mine.env.php
+echo -e ');\n' >> $DOCROOT/config/production-mine.env.php
+
+
+# Check for .htaccess.
+if [ -e "$DOCROOT/.htaccess" ]
+then
+  echo "File .htaccess exists. Deleting..."
+  rm -f $DOCROOT/.htaccess
+fi
+
+echo "Deployment into production done."

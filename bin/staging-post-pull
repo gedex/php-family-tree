@@ -1,0 +1,57 @@
+#!/bin/bash
+# Used to deploy to staging
+
+CLONED_DIR='/home/utschool/www/staging.registration.utschool.sch.id'
+DOCROOT="$CLONED_DIR/docroot"
+# TODO: This should be removed, instead, use php script that
+# utilize config/Gedex_Env_Config, maybe we should write the script
+# ini php?
+DB_NAME="utregistration_staging"
+DB_USER="utregistration_staging"
+DB_PASS="SskoMKetCzPVN8CErmI4yQFykdhcuI7pi5ca2TPjeShsB6EdylpLqoSOSchEVmW"
+# TODO: Add `ENV_NAME` variable.
+
+
+# Checkout to staging branch and pull.
+cd $CLONED_DIR
+git checkout staging
+git pull
+
+
+# Activate staging config.
+echo "Activating staging env..."
+echo 'staging' > $CLONED_DIR/config/active-env
+
+
+# Overrides staging env with DB-staging credentials
+if [ -e "$CLONED_DIR/config/staging-mine.env.php" ]
+then
+    echo "Deleteing old staging-mine.env.php"
+    rm -f $CLONED_DIR/config/staging-mine.env.php
+fi
+touch $CLONED_DIR/config/staging-mine.env.php
+echo -e '<?php\n\n' > $CLONED_DIR/config/staging-mine.env.php
+echo -e 'return array(' >> $CLONED_DIR/config/staging-mine.env.php
+echo -e "\t'DB_USER' => '$DB_USER'," >> $CLONED_DIR/config/staging-mine.env.php
+echo -e "\t'DB_PASSWORD' => '$DB_PASS'," >> $CLONED_DIR/config/staging-mine.env.php
+echo -e "\t'DB_NAME' => '$DB_NAME'," >> $CLONED_DIR/config/staging-mine.env.php
+echo -e ');\n' >> $CLONED_DIR/config/staging-mine.env.php
+
+
+# At the moment loading the db into staging must be skipped
+# since staging is used to update the content. At some point
+# this will be uncommented when production is ready and no more
+# content created in staging.
+# Load the database
+#echo 'Populating staging DB...'
+#bin/load-database
+
+
+# Removes .htaccess. rewrite rule is defined in vhost conf.
+if [ -e "$DOCROOT/.htaccess" ]
+then
+  echo "File .htaccess exists. Deleting..."
+  rm -f $DOCROOT/.htaccess
+fi
+
+echo "Deployment into staging done."

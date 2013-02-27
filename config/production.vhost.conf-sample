@@ -1,0 +1,167 @@
+<VirtualHost *:80>
+    DocumentRoot "/Users/akeda/Works/PHP/php-family-tree/docroot"
+    ServerName local.php-family-tree
+    ErrorLog  "/Users/akeda/Works/PHP/php-family-tree/log/error_log.txt"
+    php_value error_log "/Users/akeda/Works/PHP/php-family-tree/log/php_log.txt"
+    CustomLog "/Users/akeda/Works/PHP/php-family-tree/log/access_log.txt" common
+
+    php_value log_errors on
+    php_value ignore_repeated_errors on
+
+    php_value magic_quotes_gpc off
+    php_value magic_quotes_runtime off
+    php_value short_open_tag on
+
+    php_value upload_max_filesize 20M
+    php_value post_max_size 20M
+    php_value max_execution_time 200
+    php_value max_input_time 200
+</VirtualHost>
+<Directory "/Users/akeda/Works/PHP/php-family-tree/docroot">
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Order allow,deny
+    Allow from all
+
+    # audio
+    AddType audio/ogg                      oga ogg
+
+    # video
+    AddType video/ogg                      ogv
+    AddType video/mp4                      mp4
+    AddType video/webm                     webm
+
+    # Proper svg serving. Required for svg webfonts on iPad
+    #   twitter.com/FontSquirrel/status/14855840545
+    AddType     image/svg+xml              svg svgz
+    AddEncoding gzip                       svgz
+
+    # webfonts
+    AddType application/vnd.ms-fontobject  eot
+    AddType font/truetype                  ttf
+    AddType font/opentype                  otf
+    AddType font/woff                      woff
+
+    # assorted types
+    AddType image/vnd.microsoft.icon       ico
+    AddType image/webp                     webp
+    AddType text/cache-manifest            manifest
+    AddType text/x-component               htc
+    AddType application/x-chrome-extension crx
+    AddType application/x-xpinstall        xpi
+    AddType application/octet-stream       safariextz
+
+    # BEGIN gzip compression.
+    <IfModule mod_deflate.c>
+
+      # html, txt, css, js, json, xml, htc:
+      <IfModule filter_module>
+        FilterDeclare   COMPRESS
+        FilterProvider  COMPRESS  DEFLATE resp=Content-Type /text/(html|css|javascript|plain|x(ml|-component))/
+        FilterProvider  COMPRESS  DEFLATE resp=Content-Type /application/(javascript|json|xml|x-javascript)/
+        FilterChain     COMPRESS
+        FilterProtocol  COMPRESS  change=yes;byteranges=no
+      </IfModule>
+
+      <IfModule !mod_filter.c>
+        # Legacy versions of Apache
+        AddOutputFilterByType DEFLATE text/html text/plain text/css application/json
+        AddOutputFilterByType DEFLATE text/javascript application/javascript application/x-javascript
+        AddOutputFilterByType DEFLATE text/xml application/xml text/x-component
+      </IfModule>
+
+    # webfonts and svg:
+    <FilesMatch "\.(ttf|otf|eot|svg)$" >
+      SetOutputFilter DEFLATE
+    </FilesMatch>
+
+    </IfModule>
+    # END gzip compression
+
+    # these are pretty far-future expires headers
+    # they assume you control versioning with cachebusting query params like
+    #   <script src="application.js?20100608">
+    # additionally, consider that outdated proxies may miscache
+    #   www.stevesouders.com/blog/2008/08/23/revving-filenames-dont-use-querystring/
+
+    # if you don't use filenames to version, lower the css and js to something like
+    #   "access plus 1 week" or so
+
+    <IfModule mod_expires.c>
+    ExpiresActive on
+
+    # Perhaps better to whitelist expires rules? Perhaps. (Note: this was 1 month)
+    ExpiresDefault                          "access plus 5 minutes"
+
+    # cache.manifest needs re-requests in FF 3.6 (thx Remy ~Introducing HTML5)
+    ExpiresByType text/cache-manifest       "access plus 0 seconds"
+
+    # your document html
+    #ExpiresByType text/html                 "access plus 5 minutes"
+
+    # data
+    #ExpiresByType text/xml                  "access plus 5 minutes"
+    #ExpiresByType application/xml           "access plus 5 minutes"
+    #ExpiresByType application/json          "access plus 5 minutes"
+
+
+    # rss feed
+    #ExpiresByType application/rss+xml       "access plus 1 hour"
+
+    # favicon (cannot be renamed)
+    #ExpiresByType image/vnd.microsoft.icon  "access plus 1 day"
+
+    # media: images, video, audio
+    #ExpiresByType image/gif                 "access plus 1 day"
+    #ExpiresByType image/png                 "access plus 1 day"
+    #ExpiresByType image/jpg                 "access plus 1 day"
+    #ExpiresByType image/jpeg                "access plus 1 day"
+    #ExpiresByType video/ogg                 "access plus 1 day"
+    #ExpiresByType audio/ogg                 "access plus 1 day"
+    #ExpiresByType video/mp4                 "access plus 1 day"
+    #ExpiresByType video/webm                "access plus 1 day"
+
+    # webfonts
+    ExpiresByType font/truetype             "access plus 1 day"
+    ExpiresByType font/opentype             "access plus 1 day"
+    ExpiresByType font/woff                 "access plus 1 day"
+    ExpiresByType image/svg+xml             "access plus 1 day"
+    ExpiresByType application/vnd.ms-fontobject "access plus 1 day"
+
+    # css and javascript
+    #ExpiresByType text/css                  "access plus 1 day"
+    #ExpiresByType application/javascript    "access plus 1 day"
+    #ExpiresByType text/javascript           "access plus 1 day"
+
+    Header append Cache-Control "public"
+    </IfModule>
+
+    # Since we're sending far-future expires, we don't need ETags for
+    # static content.
+    #   developer.yahoo.com/performance/rules.html#etags
+    FileETag None
+
+    # Allow cookies to be set from iframes (for IE only)
+    # If needed, uncomment and specify a path or regex in the Location directive
+
+    # <IfModule mod_headers.c>
+    #   <Location />
+    #     Header set P3P "policyref=\"/w3c/p3p.xml\", CP=\"IDC DSP COR ADM DEVi TAIi PSA PSD IVAi IVDi CONi HIS OUR IND CNT\""
+    #   </Location>
+    # </IfModule>
+
+    # without -MultiViews, Apache will give a 404 for a rewrite if a folder of the same name does not exist
+    #   e.g. /blog/hello : webmasterworld.com/apache/3808792.htm
+    Options -MultiViews
+    # -Indexes will have Apache block users from browsing folders without a default document
+    # Options -Indexes
+
+    # use utf-8 encoding for anything served text/plain or text/html
+    AddDefaultCharset utf-8
+    # force utf-8 for a number of file formats
+    AddCharset utf-8 .html .css .js .xml .json .rss
+
+    # We don't need to tell everyone we're apache.
+    ServerSignature Off
+
+</Directory>

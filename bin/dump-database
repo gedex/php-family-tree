@@ -1,0 +1,260 @@
+#!/usr/bin/env php
+<?php
+/**
+ * dump-database
+ * Write out dumps for of the database dump to the database/ directory.
+ * Optionally specify an environment name to indicate which environment the dump
+ * should be made of; defaults to current active environment.
+ *
+ * @version 0.4.4
+ *
+ * =CHANGELOG=
+ * 0.2.0: Adding timer; exec instead of system and redirecting stderr; checking to see if config values have been supplied
+ * 0.3.0: Update dump-database to support DOMAIN_CURRENT_SITE in config, in addition to domain_registry
+ * 0.3.1: Allowing empty passwords (e.g. for development)
+ * 0.3.2: Adding --set-charset
+ * 0.4.0: Adding --blog_id=X option to restrict the tables included in the dump to a particular station (see usage below).
+ * 0.4.1: Fixing behavior of --stdout by not echoing out progress
+ * 0.4.2: Using tempnam() for temp names so that we know they are writable (2011-12-09)
+ * 0.4.3: Ensuring that temp files always get deleted
+ * 0.4.4: Fixing bin/dump-database --sql to actually generate output
+ *
+ * USAGE:
+ * Dump database for active environment:
+ * $ ./dump-database
+ *
+ * Dump database for dev environment:
+ * $ ./dump-database dev
+ *
+ * Get database from staging and save as database dump for production:
+ * $ ./dump-database staging production
+ *
+ * Get database from production
+ * $ ./dump-database production
+ *
+ * Use the --stdout option to pipe the data to the terminal instead of to a file.
+ * $ ./dump-database dev --stdout
+ *
+ * Use the --blog_id=X option to restrict the dumping to just the tables for a
+ * particular blog in a multisite instance, for example so that they can be used
+ * as the basis for development on a new site or for promotion from staging to production.
+ * $ ./dump-database --blog_id=3
+ *
+ * @author Weston Ruter <weston@x-team.com>
+ * Copyright (C) 2011, X-Team <http://x-team.com/>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+$start_time = microtime(true);
+
+$basePath = rtrim(realpath(dirname(__FILE__) . '/..'), '/');
+$CLI = require($basePath . '/bin/cli_libs/cli_bootstrap.php');
+
+try {
+    global $Env_Config;
+
+    $Env_Config = Gedex_Env_Config::getInstance("$basePath/config/");
+}
+catch(Exception $e){
+    $CLI->error($e->getMessage());
+}
+
+// Figure out the environment we want to dump
+$src_env = $dest_env = $Env_Config->active_env;
+$env_args_supplied = 0;
+foreach(array_slice($argv, 1) as $arg){
+	if(in_array($arg, array_keys($Env_Config->configs))){
+		$env_args_supplied++;
+		if($env_args_supplied == 1){
+			$src_env = $arg;
+		}
+		else if($env_args_supplied == 2){
+			$dest_env = $arg;
+		}
+		else if($env_args_supplied > 2){
+			cli_die('Too many environments supplied', 1);
+		}
+	}
+	else if(substr($arg, 0, 1) != '-') {
+		cli_die("Unrecognized environment '$arg'", 2);
+	}
+}
+if($env_args_supplied == 1){
+	$dest_env = $src_env;
+}
+$src_env_config  = &$Env_Config->configs[$src_env];
+$dest_env_config = &$Env_Config->configs[$dest_env];
+
+/**
+ * Dump the DB
+ */
+define('IS_OUTPUT_SQL', in_array('--stdout', $argv) || in_array('--sql', $argv));
+define('MUST_TRANSLATE_HOSTS', $src_env != $dest_env);
+define('IS_TEMP_SRC_DUMP', IS_OUTPUT_SQL || MUST_TRANSLATE_HOSTS);
+define('IS_TEMP_DEST_DUMP', IS_OUTPUT_SQL);
+
+$src_dump_file  = "$basePath/database/$src_env.sql";
+$dest_dump_file = "$basePath/database/$dest_env.sql";
+
+// If we're dumping the source database to another database, don't overwrite the source
+if(IS_TEMP_SRC_DUMP){
+	$src_dump_file = tempnam( dirname($src_dump_file), basename($src_dump_file) );
+}
+// If we're outputting SQL, write the output to a temporary file
+if(IS_TEMP_DEST_DUMP){
+	$dest_dump_file = tempnam( dirname($dest_dump_file), basename($dest_dump_file) );
+}
+
+/**
+ * Ensure that the temp files get deleted
+ */
+function cleanup_temp_files(){
+	global $src_dump_file;
+	global $dest_dump_file;
+	if(IS_TEMP_SRC_DUMP){
+		@unlink($src_dump_file);
+	}
+	if(IS_TEMP_DEST_DUMP){
+		@unlink($dest_dump_file);
+	}
+}
+register_shutdown_function('cleanup_temp_files');
+
+
+if(!IS_OUTPUT_SQL){
+	$CLI->out("<info>Dumping `{$src_env_config['database']['database']}` database from `{$src_env_config['database']['host']}`...</info>");
+}
+foreach(array( 'host', 'login', 'database' ) as $_field){
+	if(empty($src_env_config['database'][$_field])){
+		$CLI->error("Error: env '$src_env' missing $_field config");
+	}
+}
+if(!isset($src_env_config['database']['password'])){
+	$src_env_config['database']['password'] = '';
+}
+$cmd_args = array(
+	array( '--host %s', $src_env_config['database']['host'] ),
+	array( '--user %s', $src_env_config['database']['login'] ),
+	array( '--password=%s', $src_env_config['database']['password'] ),
+	'--no-create-db',
+	'--compact',
+	'--comments',
+	'--default-character-set=utf8',
+	'--extended-insert=FALSE',
+	'--set-charset',
+	'--add-drop-table',
+	array( '--result-file=%s', $src_dump_file ),
+	$src_env_config['database']['database'],
+);
+
+$cmd = 'mysqldump ' . call_user_func_array('build_cmd_args', $cmd_args);
+@exec($cmd . ' 2>&1', $output, $exit_code);
+if($exit_code){
+	$CLI->error("Unable to dump data for env '$src_env'; mysqldump returned with error code ($exit_code): " . join("\n", $output), 3);
+}
+if(!IS_OUTPUT_SQL){
+	$CLI->out("<success>Done</success>");
+}
+
+if(MUST_TRANSLATE_HOSTS){
+	if(!IS_OUTPUT_SQL){
+		$CLI->out("<info>Translating hosts from $src_env to $dest_env...</info>");
+	}
+
+	// Generate the mappings
+	$host_map = array();
+
+	// Use the DOMAIN_CURRENT_SITE constant to translate the domain
+	if(isset($src_env_config['app']['DOMAIN_CURRENT_SITE'])){
+		$host_map[sprintf('/([a-zA-Z0-9\-]+\.)?%s/', preg_quote($src_env_config['app']['DOMAIN_CURRENT_SITE']))] = '$1'.$dest_env_config['app']['DOMAIN_CURRENT_SITE'];
+	}
+
+	if(empty($host_map)){
+		$CLI->error('Your config must specify either a DOMAIN_CURRENT_SITE or a domain_registry array; otherwise, host name translations cannot be done between environments.');
+	}
+
+	// Perform host name translations from src to dest environment
+	if($src_dump_file == $dest_dump_file){
+		$CLI->error('Assertion failed that src_dump file is not the same as dest.');
+	}
+
+	// Perform host name translations from src to dest environment
+	$cmd = 'php ' . build_cmd_args(
+		realpath(dirname(__FILE__) . '/sql-translate-hosts.php'),
+		json_encode($host_map),
+		array( '< %s', $src_dump_file ),
+		array( '> %s', $dest_dump_file )
+	);
+	@exec($cmd . ' 2>&1', $output, $exit_code);
+	if($exit_code){
+		$CLI->error("sql-translate-hosts.php command failed (exit code $exit_code): " . join("\n", $output), 4);
+	}
+	if(!IS_OUTPUT_SQL){
+		$CLI->out("<success>Done</success>");
+	}
+}
+
+if(IS_OUTPUT_SQL){
+	print file_get_contents(MUST_TRANSLATE_HOSTS ? $dest_dump_file : $src_dump_file); // xss ok
+}
+else {
+	$CLI->out(sprintf("<info>Dump complete (took %.02f seconds)</info>", round(microtime(true) - $start_time, 2)));
+}
+
+exit(0);
+
+
+
+
+/**
+ * PHP's die() function doesn't output to STDERR and it doesn't exit the program
+ * with an error exit code. Fix this.
+ * @param {string} $msg
+ * @param {int} $exit_code
+ */
+function cli_die($msg, $exit_code = 1){
+	fwrite(STDERR, rtrim($msg) . "\n");
+	exit($exit_code);
+}
+
+
+/**
+ * Given an array of arguments: strings pass through to output and arrays get
+ * applied to sprintf, with subarray items passed as sprintf arguments.
+ * @param {array} $arg_list
+ * @return {array}
+ */
+function build_cmd_args(/*...*/){
+	$arg_list = func_get_args();
+	$args = array();
+	foreach($arg_list as $arg_item){
+		if(is_string($arg_item)){
+			if(substr($arg_item, 0, 1) != '-'){
+				$arg_item = escapeshellarg($arg_item);
+			}
+			$args[] = $arg_item;
+		}
+		else {
+			array_splice(
+				$arg_item,
+				1,
+				count($arg_item),
+				array_map('escapeshellarg', array_slice($arg_item, 1))
+			);
+			$args[] = call_user_func_array('sprintf', $arg_item);
+		}
+	}
+	return join(' ', $args);
+}

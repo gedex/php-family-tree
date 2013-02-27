@@ -1,0 +1,11 @@
+#!/bin/bash
+# Used when the snapshot ready to be deployed into staging. After that testing new features
+# should be done via staging.utschool.sch.id to verify new features. When everything is good
+# rise up into production by doing: `merge-push-all-from-staging`.
+
+git checkout master
+git push
+git checkout staging
+git merge master
+git push
+git checkout master

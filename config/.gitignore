@@ -1,0 +1,10 @@
+active-env
+dev-local.env.php
+dev.vhost.conf
+dev-local.vhost.conf
+local-mine.env.php
+local.vhost.conf
+*-mine.env.php
+productionspoofed.env.php
+staging.vhost.conf
+production.vhost.conf

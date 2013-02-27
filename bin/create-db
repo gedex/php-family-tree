@@ -1,0 +1,77 @@
+#!/usr/bin/env php
+<?php
+/**
+ * create-db
+ * Generates the create database statement for a given environment. Uses the
+ * active-env if one is not set. Copied from x-team's create-database.php with
+ * modification.
+ *
+ * USAGE:
+ * Load production dump into the active environment's database
+ * $ ./create-db | mysql -u root -p
+ * $ ./create-db staging | mysql -u root -h staging.example.com -p
+ *
+ * @author Weston Ruter <weston@x-team.com>
+ * @author Josh Johnston <josh@x-team.com>
+ * @author Akeda Bagus <admin@gedex.web.id>
+ *
+ * @version 1.1
+ */
+
+$basePath = rtrim(realpath(dirname(__FILE__) . '/..'), '/');
+$CLI = require($basePath . '/bin/cli_libs/cli_bootstrap.php');
+
+try {
+    global $Env_Config;
+
+    $Env_Config = Gedex_Env_Config::getInstance();
+}
+catch(Exception $e){
+    $CLI->error($e->getMessage());
+}
+
+$env = $Env_Config->active_env;
+$all_envs = array_keys($Env_Config->configs);
+// Use environment from passed arg if given.
+foreach($argv as $arg){
+    if(in_array($arg, $all_envs)){
+        $env = $arg;
+    }
+}
+
+if( empty($Env_Config->configs[$env]) ){
+    $CLI->error( "Unrecognized environment `{$env}`." );
+}
+
+$active_config = &$Env_Config->configs[$env]['database'];
+
+$sql_statements = array();
+
+// Create database
+$sql = "CREATE DATABASE `{$active_config['database']}`";
+$sql .= " CHARACTER SET {$active_config['encoding']};";
+
+$sql_statements[] = $sql;
+
+// Use the database
+$sql_statements[] = "USE `{$active_config['database']}`;";
+
+// Create user
+if ($active_config['login'] !== 'root') {
+    $sql_statements[] = sprintf("CREATE USER '%s'@'%s' IDENTIFIED BY '%s';",
+        $active_config['login'],
+        $active_config['host'],
+        addcslashes($active_config['password'], "'")
+    );
+
+    // Grant users
+    $sql_statements[] = sprintf("GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'%s';",
+        $active_config['database'],
+        $active_config['login'],
+        $active_config['host']
+    );
+}
+
+$CLI->out($sql_statements);
+exit(0);
+
